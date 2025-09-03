@@ -1,4 +1,3 @@
-import json
 import os
 
 import click
@@ -32,14 +31,20 @@ from kindle2notion.reading import read_raw_clippings
     help="Set to True to separate each clipping into a separate quote block. Enabling this option significantly decreases upload speed.",
 )
 def main(
-    notion_api_auth_token,
-    notion_database_id,
     clippings_file,
     enable_location,
     enable_highlight_date,
     enable_book_cover,
     separate_blocks,
 ):
+    notion_api_auth_token = os.environ.get("NOTION_AUTH_TOKEN", None)
+    notion_database_id = os.environ.get("NOTION_DBREF", None)
+    if notion_api_auth_token is None:
+        print("please export the env var: NOTION_AUTH_TOKEN")
+        return
+    if notion_database_id is None:
+        print("please export the following env var: NOTION_DBREF")
+        return
     notion = notional.connect(auth=notion_api_auth_token)
     db = notion.databases.retrieve(notion_database_id)
 
@@ -51,14 +56,6 @@ def main(
 
         # Parse all_clippings file and format the content to be sent tp the Notion DB into all_books
         all_books = parse_raw_clippings_text(all_clippings)
-
-        notion_api_auth_token = os.environ.get("NOTION_API_AUTH_TOKEN", None)
-        notion_database_id = os.environ.get("NOTION_DBREF", None)
-        if notion_api_auth_token is None or notion_database_id is None:
-            print(
-                "please export the following env vars: NOTION_API_AUTH_TOKEN, NOTION_DBREF"
-            )
-            return
         # Export all the contents in all_books into the Notion DB.
         export_to_notion(
             all_books,
