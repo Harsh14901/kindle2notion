@@ -11,6 +11,7 @@ from bs4 import XMLParsedAsHTMLWarning
 import warnings
 
 from kindle2notion import models
+from kindle2notion.package_logger import logger
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
@@ -24,7 +25,7 @@ def read_raw_clippings(clippings_file_path: Path) -> str:
             "ascii", errors="ignore"
         ).decode()
     except UnicodeEncodeError as e:
-        print(e)
+        logger.error("Error in reading raw clippings", exc_info=True)
 
     return raw_clippings_text_decoded
 
@@ -42,12 +43,16 @@ def find_mobi_file(book: models.Book, kindle_root: str) -> Optional[str]:
     all_books = glob.glob(os.path.join(kindle_root, "**/*.mobi"))
     for search_by in [book.title, book.author]:
         search_by = _preformat(search_by)
-        print(f"searching mobi file with keyword: {search_by}")
+        logger.info(
+            f"Searching mobi file with keyword: [white on dodger_blue1]{search_by}[/white on dodger_blue1]"
+        )
         matching_books = [x for x in all_books if search_by in _preformat(x)]
         if len(matching_books) == 1:
             return matching_books[0]
         else:
-            print(f"attempt to search failed. Matching candidates: {matching_books}")
+            logger.warning(
+                f"Attempt to search failed. Matching candidates: {matching_books}"
+            )
 
 
 class MobiHandler:
@@ -75,7 +80,7 @@ class MobiHandler:
         try:
             self.html_dir, self.html_file_path = mobi.extract(self.path)
         except Exception as e:
-            print("An error occured in extraction to html")
+            logger.error("An error occured in extraction to html")
             raise e
 
     # --- Parse toc.ncx with html.parser ---

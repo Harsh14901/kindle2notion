@@ -5,6 +5,7 @@ from kindle2notion import models
 from re import findall
 from typing import Dict, List, Optional, Tuple
 from dateparser import parse
+from kindle2notion.package_logger import logger
 
 BOOKS_WO_AUTHORS = []
 
@@ -86,7 +87,9 @@ DELIMITERS = ["; ", " & ", " and "]
 
 def parse_raw_clippings_text(raw_clippings_text: str) -> Dict:
     raw_clippings_list = raw_clippings_text.split("==========")
-    print(f"Found {len(raw_clippings_list)} notes and highlights.\n")
+    logger.info(
+        f"Found [white on yellow]{len(raw_clippings_list)}[/white on yellow] notes and highlights.\n"
+    )
 
     all_books: dict[str, models.Book] = {}
     passed_clippings_count = 0
@@ -120,7 +123,9 @@ def parse_raw_clippings_text(raw_clippings_text: str) -> Dict:
         else:
             passed_clippings_count += 1
 
-    print(f"× Parsed {passed_clippings_count} bookmarks or unsupported clippings.\n")
+    logger.warning(
+        f"[red]×[/red] Parsed {passed_clippings_count} bookmarks or unsupported clippings.\n"
+    )
 
     # Clear empty books
     for book_title in list(all_books.keys()):
@@ -195,7 +200,7 @@ def _parse_raw_author_and_title(raw_clipping_list: List) -> Tuple[str, str]:
     else:
         if title not in BOOKS_WO_AUTHORS:
             BOOKS_WO_AUTHORS.append(title)
-            print(
+            logger.warning(
                 f"{title} - No author found. You can manually add the author in the Notion database."
             )
 

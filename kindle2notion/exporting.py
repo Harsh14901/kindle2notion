@@ -7,6 +7,7 @@ from notional.query import TextCondition
 from notional.types import Date, ExternalFile, Number, RichText, Title, Checkbox
 from kindle2notion import models
 from kindle2notion.reading import find_mobi_file, MobiHandler
+from kindle2notion.package_logger import logger
 from requests import get
 from fuzzysearch import find_near_matches
 
@@ -23,7 +24,7 @@ def export_to_notion(
     notion_database_id: str,
     kindle_root: Optional[str],
 ) -> None:
-    print("Initiating transfer...\n")
+    logger.info("Initiating transfer...\n")
 
     for book in all_books.values():
         try:
@@ -38,11 +39,11 @@ def export_to_notion(
                 kindle_root=kindle_root,
             )
             if message:
-                print("✓", message)
+                logger.info(f"[green]✓[/green] {message}")
             else:
-                print("None to add!")
+                logger.info("Nothing to add!")
         except Exception as e:
-            print(f"An error occured in writing: {book.title} ({book.author})")
+            logger.error(f"An error occured in writing: {book.title} ({book.author})")
             raise e
 
 
@@ -65,11 +66,11 @@ def get_heading_info(
     try:
         headings = mobi_handler.process()
     except Exception as e:
-        print("An error occured in handling the mobi file: ", e)
+        logger.error("An error occured in handling the mobi file", exc_info=True)
         return headings, indices
     headings = [h for h in headings if h.position != -1]
     if len(headings) == 0:
-        print(
+        logger.error(
             "Could not extract positions for any heading, or no headings were found at all"
         )
         return headings, indices
@@ -84,7 +85,9 @@ def get_heading_info(
         # NOTE: allowing for a 4% error tolerance here
         matches = find_near_matches(txt_short, html_str, max_l_dist=2)
         if len(matches) == 0:
-            print("Failed to find text in html:\n", txt_short)
+            logger.warning(
+                f"Failed to find text in html:\n [italic]{txt_short}[/italic]"
+            )
             continue
         txt_pos = matches[0].start
         heading_pos = bisect.bisect_right(headings, txt_pos, key=lambda x: x.position)
@@ -131,7 +134,6 @@ def _write_to_page(
 
     else:
         # TODO: Special case for books with len(clippings) >= 100 characters. Character limit in a Paragraph block in Notion is 100
-        raise NotImplementedError("WIP")
         page_content = Paragraph["".join(formatted_clippings)]
         notion.blocks.children.append(page_block, page_content)
 
@@ -157,8 +159,8 @@ def _add_book_to_notion(
     needs_writing: bool = False
 
     title_and_author = book.title + " (" + str(book.author) + ")"
-    print(title_and_author)
-    print("-" * len(title_and_author))
+    logger.info(title_and_author)
+    logger.info("-" * len(title_and_author))
 
     if page_block:
         last_highlighted_dt = cast(
@@ -217,14 +219,14 @@ def _add_book_to_notion(
         if result is None:
             # Set the page cover to a placeholder image
             cover = ExternalFile[NO_COVER_IMG]
-            print(
-                "× Book cover couldn't be found. "
+            logger.error(
+                "[red]×[/red] Book cover couldn't be found. "
                 "Please replace the placeholder image with the original book cover manually."
             )
         else:
             # Set the page cover to that of the book
             cover = ExternalFile[result]
-            print("✓ Added book cover.")
+            logger.info("[green]✓[/green] Added book cover.")
 
         notion.pages.set(page_block, cover=cover)
     try:
@@ -247,7 +249,7 @@ def _add_book_to_notion(
         )
         return str(len(book.highlights)) + " notes/highlights added successfully.\n"
     except Exception as e:
-        print("Failed writing to notion", e)
+        logger.error("Failed writing to notion")
         notion.pages.delete(page_block)
         raise e
 

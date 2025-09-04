@@ -15,6 +15,7 @@ dependencies = [
     "notional>=0.4.1",
     "pathlib>=1.0.1",
     "requests>=2.25.0",
+    "rich>=14.1.0",
     "tqdm>=4.67.1",
 ]
 

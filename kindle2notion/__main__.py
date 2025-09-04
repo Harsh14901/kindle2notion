@@ -7,6 +7,7 @@ import notional
 from kindle2notion.exporting import export_to_notion
 from kindle2notion.parsing import parse_raw_clippings_text
 from kindle2notion.reading import read_raw_clippings
+from kindle2notion.package_logger import logger
 
 
 @click.command()
@@ -48,17 +49,16 @@ def main(
     notion_api_auth_token = os.environ.get("NOTION_AUTH_TOKEN", None)
     notion_database_id = os.environ.get("NOTION_DBREF", None)
     if notion_api_auth_token is None:
-        print("please export the env var: NOTION_AUTH_TOKEN")
+        logger.error("please export the env var: NOTION_AUTH_TOKEN")
         return
     if notion_database_id is None:
-        print("please export the following env var: NOTION_DBREF")
+        logger.error("please export the following env var: NOTION_DBREF")
         return
     notion = notional.connect(auth=notion_api_auth_token)
     db = notion.databases.retrieve(notion_database_id)
 
     if db:
-        print("Notion page is found. Analyzing clippings file...")
-
+        logger.info("Notion page is found. Analyzing clippings file...")
         # Open the clippings text file and load it into all_clippings
         all_clippings = read_raw_clippings(clippings_file)
 
@@ -84,9 +84,9 @@ def main(
         # with open("my_kindle_clippings.json", "w") as out_file:
         #     json.dump(all_books, out_file, indent=4)
 
-        print("Transfer complete... Exiting script...")
+        logger.info("Transfer complete... Exiting script...")
     else:
-        print(
+        logger.error(
             "Notion page not found! Please check whether the Notion database ID is assigned properly."
         )
 

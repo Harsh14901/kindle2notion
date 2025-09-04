@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel
+from kindle2notion.package_logger import logger
 
 
 class Highlight(BaseModel):
@@ -50,8 +51,8 @@ class Book(BaseModel):
             max_end_loc = end_loc
 
         if len(filtered_highlights) < len(self.highlights):
-            print(
-                f"Pruned highlights for {self.title} ({self.author}) from {len(self.highlights)} -> {len(filtered_highlights)}"
+            logger.info(
+                f"Pruned highlights for [bold]{self.title} ({self.author})[/bold] from [red]{len(self.highlights)}[/red] -> [green]{len(filtered_highlights)}[/green]"
             )
         self.highlights = filtered_highlights
 
