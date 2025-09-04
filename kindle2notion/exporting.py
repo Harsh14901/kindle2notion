@@ -1,13 +1,14 @@
+import bisect
 from datetime import datetime
 from typing import Optional, cast
-from tqdm import tqdm
 import notional
-from notional.blocks import Paragraph, Quote, Page
+from notional.blocks import Paragraph, Quote, Page, Heading2
 from notional.query import TextCondition
 from notional.types import Date, ExternalFile, Number, RichText, Title, Checkbox
 from kindle2notion import models
+from kindle2notion.reading import find_mobi_file, MobiHandler
 from requests import get
-
+from fuzzysearch import find_near_matches
 
 NO_COVER_IMG = "https://via.placeholder.com/150x200?text=No%20Cover"
 
@@ -20,6 +21,7 @@ def export_to_notion(
     separate_blocks: bool,
     notion_api_auth_token: str,
     notion_database_id: str,
+    kindle_root: Optional[str],
 ) -> None:
     print("Initiating transfer...\n")
 
@@ -33,6 +35,7 @@ def export_to_notion(
                 separate_blocks,
                 enable_location,
                 enable_highlight_date,
+                kindle_root=kindle_root,
             )
             if message:
                 print("✓", message)
@@ -43,29 +46,92 @@ def export_to_notion(
             raise e
 
 
+def get_heading_info(
+    book: models.Book, kindle_root: str
+) -> tuple[list[models.BookHeading], list[Optional[int]]]:
+    """
+    Given a book, this will return a tuple
+    (l1, l2)
+    l1 -> list of all headings
+    l2 -> list of indices into l1 for each highlight in the book such that the highlight comes under that particular heading
+    """
+    headings = []
+    indices: list[Optional[int]] = [None for _ in range(len(book.highlights))]
+
+    mobi_path = find_mobi_file(book, kindle_root)
+    if mobi_path is None:
+        return headings, indices
+    mobi_handler = MobiHandler(mobi_path)
+    try:
+        headings = mobi_handler.process()
+    except Exception as e:
+        print("An error occured in handling the mobi file: ", e)
+        return headings, indices
+    headings = [h for h in headings if h.position != -1]
+    if len(headings) == 0:
+        print(
+            "Could not extract positions for any heading, or no headings were found at all"
+        )
+        return headings, indices
+    headings = sorted(headings, key=lambda x: x.position)
+
+    assert mobi_handler.html_file_path is not None
+    html_str = open(mobi_handler.html_file_path, "r", errors="ignore").read()
+    for i, highlight in enumerate(book.highlights):
+        # NOTE: arbitrary first 50 characters
+        txt_short = highlight.text[:50].strip()
+        # txt_pos = html_str.find(txt_short)
+        # NOTE: allowing for a 4% error tolerance here
+        matches = find_near_matches(txt_short, html_str, max_l_dist=2)
+        if len(matches) == 0:
+            print("Failed to find text in html:\n", txt_short)
+            continue
+        txt_pos = matches[0].start
+        heading_pos = bisect.bisect_right(headings, txt_pos, key=lambda x: x.position)
+        if heading_pos != 0:
+            indices[i] = heading_pos - 1
+    return (headings, indices)
+
+
 def _write_to_page(
     notion: notional.session.Session,
     page_block: Page,
     separate_blocks: bool,
-    highlights: list[models.Highlight],
+    book: models.Book,
     enable_location: bool,
     enable_highlight_date: bool,
+    kindle_root: Optional[str],
 ):
+    headings = []
+    highlight_to_heading_indices = [None for _ in range(len(book.highlights))]
+
+    if kindle_root:
+        headings, highlight_to_heading_indices = get_heading_info(book, kindle_root)
+
     formatted_clippings = [
         h.make_aggregate_text(
             enable_location=enable_location, enable_highlight_date=enable_highlight_date
         )
-        for h in highlights
+        for h in book.highlights
     ]
     if separate_blocks:
-        for st in tqdm(range(0, len(formatted_clippings), 100)):
-            page_contents = [
-                Quote[clip.strip()] for clip in formatted_clippings[st : st + 100]
-            ]
-            notion.blocks.children.append(page_block, *page_contents)
+        page_contents = []
+        last_heading_idx = None
+        for heading_idx, clip in zip(highlight_to_heading_indices, formatted_clippings):
+            if len(page_contents) >= 99:
+                notion.blocks.children.append(page_block, *page_contents)
+                page_contents = []
+            if heading_idx is not None and last_heading_idx != heading_idx:
+                page_contents.append(Heading2[headings[heading_idx].title.strip()])
+                last_heading_idx = heading_idx
+
+            page_contents.append(Quote[clip.strip()])
+
+        notion.blocks.children.append(page_block, *page_contents)
+
     else:
         # TODO: Special case for books with len(clippings) >= 100 characters. Character limit in a Paragraph block in Notion is 100
-
+        raise NotImplementedError("WIP")
         page_content = Paragraph["".join(formatted_clippings)]
         notion.blocks.children.append(page_block, page_content)
 
@@ -78,6 +144,7 @@ def _add_book_to_notion(
     separate_blocks: bool,
     enable_location: bool,
     enable_highlight_date: bool,
+    kindle_root: Optional[str],
 ) -> Optional[str]:
     notion = notional.connect(auth=notion_api_auth_token)
 
@@ -160,27 +227,29 @@ def _add_book_to_notion(
             print("✓ Added book cover.")
 
         notion.pages.set(page_block, cover=cover)
-
-    _write_to_page(
-        notion=notion,
-        page_block=page_block,
-        separate_blocks=separate_blocks,
-        highlights=book.highlights,
-        enable_location=enable_location,
-        enable_highlight_date=enable_highlight_date,
-    )
-
-    # Only write this once content has been succesfully written to page
-    notion.pages.update(
-        page_block,
-        **{
-            "Highlights": Number[len(book.highlights)],
-            "Last Synced": Date[datetime.now().isoformat()],
-        },
-    )
-    message = str(len(book.highlights)) + " notes/highlights added successfully.\n"
-
-    return message
+    try:
+        _write_to_page(
+            notion=notion,
+            page_block=page_block,
+            separate_blocks=separate_blocks,
+            book=book,
+            enable_location=enable_location,
+            enable_highlight_date=enable_highlight_date,
+            kindle_root=kindle_root,
+        )
+        # Only write this once content has been succesfully written to page
+        notion.pages.update(
+            page_block,
+            **{
+                "Highlights": Number[len(book.highlights)],
+                "Last Synced": Date[datetime.now().isoformat()],
+            },
+        )
+        return str(len(book.highlights)) + " notes/highlights added successfully.\n"
+    except Exception as e:
+        print("Failed writing to notion", e)
+        notion.pages.delete(page_block)
+        raise e
 
 
 # def _create_rich_text_object(text):

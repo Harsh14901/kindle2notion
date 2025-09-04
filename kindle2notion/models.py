@@ -60,3 +60,9 @@ class Book(BaseModel):
         assert len(self.highlights) > 0
         all_timestamps = [h.date for h in self.highlights]
         return max(all_timestamps)
+
+
+class BookHeading(BaseModel):
+    title: str
+    href: str
+    position: int = -1
